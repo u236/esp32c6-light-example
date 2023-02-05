@@ -36,7 +36,7 @@ static void set_zcl_string(uint8_t *buffer, char *value)
     memcpy(buffer + 1, value, buffer[0]);
 }
 
-static void attr_value_cb(uint8_t status, uint8_t endpoint, uint16_t cluster_id, uint16_t attr_id, void *data)
+static void set_attr_value_cb(uint8_t status, uint8_t endpoint, uint16_t cluster_id, uint16_t attr_id, void *data)
 {
     (void) status;
     (void) endpoint;
@@ -82,7 +82,7 @@ static void zigbee_task(void *arg)
     esp_zb_init(&zigbee_config);
     esp_zb_set_network_channel(zigbee_channel);
     esp_zb_device_register(ep_list);
-    esp_zb_device_add_set_attr_value_cb(attr_value_cb);
+    esp_zb_device_add_set_attr_value_cb(set_attr_value_cb);
     esp_zb_start(false);
 
     esp_zb_main_loop_iteration();

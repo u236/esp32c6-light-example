@@ -14,6 +14,7 @@ void light_init(uint8_t status)
 
     led_strip.max_leds = 1;
     led_strip.strip_gpio_num = LED_PIN;
+    led_strip.led_model = LED_MODEL_WS2812;
     rmt.resolution_hz = 10000000;
 
     led_strip_new_rmt_device(&led_strip, &rmt, &handle);
