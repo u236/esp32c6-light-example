@@ -1,8 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define MANUFACTURER_NAME   "Espressif"
-#define MODEL_NAME          "ESP32C6 Light Example"
+#define MANUFACTURER_NAME   "HOMEd"
+#define MODEL_NAME          "ESP Light"
 
 #define ZCL_VERSION         0x03
 #define APP_VERSION         0x01

@@ -1,9 +1,9 @@
 #include <string.h>
-#include "nvs_flash.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
 #include "ha/esp_zigbee_ha_standard.h"
+#include "nvs_flash.h"
 #include "config.h"
 #include "light.h"
 
@@ -11,7 +11,10 @@ static const char *tag = "zigbee";
 
 static gptimer_handle_t timer;
 static TaskHandle_t button_handle, timer_handle;
-static uint8_t zigbee_channel = 11, zcl_version = ZCL_VERSION, app_version = APP_VERSION, power_source = POWER_SOURCE, light_status = 0, manufacturer[32], model[32];
+static light_data_t light_data;
+static char manufacturer[32], model[32];
+static uint8_t zigbee_channel = 11, zcl_version = ZCL_VERSION, app_version = APP_VERSION, power_source = POWER_SOURCE;
+static uint16_t color_capabilities = 0x0009;
 
 static void IRAM_ATTR button_handler(void *arg)
 {
@@ -30,7 +33,7 @@ static bool IRAM_ATTR timer_handler(gptimer_handle_t timer, const gptimer_alarm_
     return true;
 }
 
-static void set_zcl_string(uint8_t *buffer, char *value)
+static void set_zcl_string(char *buffer, char *value)
 {
     buffer[0] = (char) strlen(value);
     memcpy(buffer + 1, value, buffer[0]);
@@ -41,11 +44,63 @@ static void set_attr_value_cb(uint8_t status, uint8_t endpoint, uint16_t cluster
     (void) status;
     (void) endpoint;
 
-    if (cluster_id == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF && attr_id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID)
+    switch (cluster_id)
     {
-        light_status = *(uint8_t*) data;
-        light_set(light_status);
-        return;
+        case ESP_ZB_ZCL_CLUSTER_ID_ON_OFF:
+
+            switch (attr_id)
+            {
+                case ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID:
+                    light_data.status = *(uint8_t*) data;
+                    light_update();
+                    return;
+            }
+
+            break;
+
+        case ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL:
+
+            switch (attr_id)
+            {
+                case ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID:
+                    light_data.level = *(uint8_t*) data;
+                    light_update();
+                    return;
+            }
+
+            break;
+
+        case ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL:
+
+            switch (attr_id)
+            {
+                case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_HUE_ID:
+                    light_data.color_h = *(uint8_t*) data;
+                    light_update();
+                    return;
+
+                case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_SATURATION_ID:
+                    light_data.color_s = *(uint8_t*) data;
+                    light_update();
+                    return;
+          
+                case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_X_ID:
+                    light_data.color_x = *(uint16_t*) data;
+                    light_update();
+                    return;
+
+                case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_Y_ID:
+                    light_data.color_y = *(uint16_t*) data;
+                    light_update();
+                    return;
+
+                case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_MODE_ID:
+                    light_data.color_mode = *(uint8_t*) data;
+                    light_update();
+                    return;
+            }
+
+            break;
     }
 
     ESP_LOGI(tag, "cluster 0x%04X attribute 0x%04X value updated", cluster_id, attr_id);
@@ -56,7 +111,7 @@ static void zigbee_task(void *arg)
     (void) arg;
 
     esp_zb_cfg_t zigbee_config;
-    esp_zb_attribute_list_t *attr_list_basic = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC), *attr_list_on_off = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
+    esp_zb_attribute_list_t *attr_list_basic = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_BASIC), *attr_list_on_off = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_ON_OFF), *attr_list_level = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL), *attr_list_color = esp_zb_zcl_attr_list_create(ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL);
     esp_zb_cluster_list_t *cluster_list = esp_zb_zcl_cluster_list_create();
     esp_zb_ep_list_t *ep_list = esp_zb_ep_list_create();
 
@@ -73,10 +128,23 @@ static void zigbee_task(void *arg)
     esp_zb_basic_cluster_add_attr(attr_list_basic, ESP_ZB_ZCL_ATTR_BASIC_MANUFACTURER_NAME_ID, manufacturer);
     esp_zb_basic_cluster_add_attr(attr_list_basic, ESP_ZB_ZCL_ATTR_BASIC_MODEL_IDENTIFIER_ID, model);
     esp_zb_basic_cluster_add_attr(attr_list_basic, ESP_ZB_ZCL_ATTR_BASIC_POWER_SOURCE_ID, &power_source);
-    esp_zb_on_off_cluster_add_attr(attr_list_on_off, ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, &light_status);
 
-    esp_zb_cluster_list_add_basic_cluster(cluster_list, attr_list_basic, 1);
-    esp_zb_cluster_list_add_on_off_cluster(cluster_list, attr_list_on_off, 1);
+    esp_zb_on_off_cluster_add_attr(attr_list_on_off, ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, &light_data.status);
+    esp_zb_level_cluster_add_attr(attr_list_level, ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID, &light_data.level);
+
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_HUE_ID, &light_data.color_h);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_SATURATION_ID, &light_data.color_s);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_X_ID, &light_data.color_x);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_Y_ID, &light_data.color_y);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_MODE_ID, &light_data.color_mode);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_ENHANCED_COLOR_MODE_ID, &light_data.color_mode);
+    esp_zb_color_control_cluster_add_attr(attr_list_color, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_CAPABILITIES_ID, &color_capabilities);
+
+    esp_zb_cluster_list_add_basic_cluster(cluster_list, attr_list_basic, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_on_off_cluster(cluster_list, attr_list_on_off, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_level_cluster(cluster_list, attr_list_level, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+    esp_zb_cluster_list_add_color_control_cluster(cluster_list, attr_list_color, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE);
+
     esp_zb_ep_list_add_ep(ep_list, cluster_list, LIGHT_ENDPOINT, LIGHT_PROFILE_ID, LIGHT_DEVICE_ID);
 
     esp_zb_init(&zigbee_config);
@@ -105,8 +173,8 @@ static void button_task(void *arg)
         gptimer_set_raw_count(timer, 0);
         gptimer_start(timer);
 
-        light_status ^= 1;
-        light_set(light_status);
+        light_data.status ^= 1;
+        light_update();
 
         // TODO: send report here
     }
@@ -196,8 +264,8 @@ void app_main(void)
     alarm_config.alarm_count = timer_config.resolution_hz * 10;
 
     nvs_flash_init();
+    light_init(&light_data);
     esp_zb_platform_config(&platform_config);
-    light_init(light_status);
 
     gpio_config(&button_config);
     gpio_install_isr_service(0);
