@@ -13,7 +13,7 @@ static gptimer_handle_t timer;
 static TaskHandle_t button_handle, timer_handle;
 static light_data_t light_data;
 static char manufacturer[32], model[32];
-static uint8_t zigbee_channel = 11, zcl_version = ZCL_VERSION, app_version = APP_VERSION, power_source = POWER_SOURCE;
+static uint8_t zcl_version = ZCL_VERSION, app_version = APP_VERSION, power_source = POWER_SOURCE;
 static uint16_t color_capabilities = 0x0009;
 
 static void IRAM_ATTR button_handler(void *arg)
@@ -83,7 +83,7 @@ static void set_attr_value_cb(uint8_t status, uint8_t endpoint, uint16_t cluster
                     light_data.color_s = *(uint8_t*) data;
                     light_update();
                     return;
-          
+
                 case ESP_ZB_ZCL_ATTR_COLOR_CONTROL_CURRENT_X_ID:
                     light_data.color_x = *(uint16_t*) data;
                     light_update();
@@ -148,7 +148,7 @@ static void zigbee_task(void *arg)
     esp_zb_ep_list_add_ep(ep_list, cluster_list, LIGHT_ENDPOINT, LIGHT_PROFILE_ID, LIGHT_DEVICE_ID);
 
     esp_zb_init(&zigbee_config);
-    esp_zb_set_network_channel(zigbee_channel);
+    esp_zb_set_primary_network_channel_set(0x07FFF800);
     esp_zb_device_register(ep_list);
     esp_zb_device_add_set_attr_value_cb(set_attr_value_cb);
     esp_zb_start(false);
@@ -176,7 +176,7 @@ static void button_task(void *arg)
         light_data.status ^= 1;
         light_update();
 
-        // TODO: send report here
+        esp_zb_zcl_set_attribute_val(LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, &light_data.status);
     }
 }
 
@@ -218,14 +218,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *data)
             {
                 esp_zb_ieee_addr_t pan_id;
                 esp_zb_get_extended_pan_id(pan_id);
-                ESP_LOGI(tag, "Successfully joined network on channel %d (PAN ID: 0x%04x, Extended PAN ID: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x)", zigbee_channel, esp_zb_get_pan_id(), pan_id[7], pan_id[6], pan_id[5], pan_id[4], pan_id[3], pan_id[2], pan_id[1], pan_id[0]);
+                ESP_LOGI(tag, "Successfully joined network (PAN ID: 0x%04x, Extended PAN ID: %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x)", esp_zb_get_pan_id(), pan_id[7], pan_id[6], pan_id[5], pan_id[4], pan_id[3], pan_id[2], pan_id[1], pan_id[0]);
                 break;
             }
 
-            ESP_LOGW(tag, "Network steering failed on channel %d (status: %d)", zigbee_channel, error);
-            zigbee_channel = zigbee_channel < 26 ? zigbee_channel + 1 : 11;
-
-            esp_zb_set_network_channel(zigbee_channel);
+            ESP_LOGW(tag, "Network steering failed, error: %d", error);
             esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             break;
 
